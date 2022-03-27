@@ -151,7 +151,7 @@ export class P4Tools {
 			if(selection == checkOutAndSaveOption){
 				const fileUri = vscode.Uri.file(filePath);
 				// check out
-				this.p4CheckOutFile(fileUri).then(function(){
+				this.p4CheckOutFile(fileUri, "default").then(function(){
 					// save the file
 					document.save();
 				});
