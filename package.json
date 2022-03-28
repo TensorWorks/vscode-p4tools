@@ -46,9 +46,9 @@
 		"configuration": {
 			"title": "P4Tools",
 			"properties": {
-				"p4tools.p4user": {
+				"p4tools.p4User": {
 					"type": "string",
-					"default": false,
+					"default": "",
 					"description": "The p4 user to login with."
 				}
 			}

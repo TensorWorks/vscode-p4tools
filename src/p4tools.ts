@@ -5,6 +5,7 @@
 import * as fs from "fs";
 import * as vscode from 'vscode';
 import * as child from 'child_process';
+import { rejects } from "assert";
 
 export class P4Tools {
 
@@ -28,12 +29,30 @@ export class P4Tools {
 
 	/* --------------------------- PRIVATE FUNCTIONS -------------------------- */
 
-	private async updateP4UserAndWorkspace() {
+	private getConfig(key : string) {
+		const workspaceConfig = vscode.workspace.getConfiguration('p4tools');
+		return workspaceConfig.get(key);
+	}
 
+	private setConfig(key : string, value : string) {
+		const workspaceConfig = vscode.workspace.getConfiguration('p4tools');
+		return workspaceConfig.update(key, value, false);
+	}
+
+	private async getP4User() {
+		return this.getP4UserFromConfig()
+		.catch(this.p4GetLoggedInUser)
+		.catch(this.p4AskForLogin);
+	}
+ 
+	private async updateP4UserAndWorkspace() {
 		try {
-			this.p4User = await this.p4GetLoggedInUser();
+			this.p4User = await this.getP4User();
 			this.p4Workspace = await this.findP4WorkspaceThatMatchesVSWorkspace(this.p4User);
+			
+			// TODO: remove this on Linux and set as "export" prior to running P4 commands
 			await this.p4RunCommand(`set P4CLIENT=${this.p4Workspace}`);
+			
 			this.isExtensionIntialised = true;
 			vscode.commands.executeCommand('setContext', 'p4tools.initialised', this.isExtensionIntialised);
 		}catch(err) {
@@ -83,13 +102,29 @@ export class P4Tools {
 		});
 	}
 	
-	private async p4GetLoggedInUser() : Promise<string> {
-		return this.p4RunCommand("login -s").then(loginMsg => {
-			if(loginMsg.startsWith("User")){
-				const tokens = loginMsg.split(" ");
-				return tokens[1];
+	private async getP4UserFromConfig() : Promise<string> {
+		return new Promise((resolve, reject) => {
+			const p4UserConfigValue = this.getConfig("p4User");
+			const p4UserValue = typeof p4UserConfigValue === 'string' ? p4UserConfigValue : undefined;
+			if(p4UserValue !== undefined && p4UserValue != "") {
+				resolve(p4UserValue);
 			}
-			return "Unknown user";
+			else {
+				reject("No P4User set in extension's config.");
+			}
+		});
+	}
+
+	private async p4GetLoggedInUser() : Promise<string> {
+		return this.p4RunCommand("login -s", false).then(
+			loginMsg => {
+				return new Promise((resolve, reject) => {
+					if(loginMsg.startsWith("User")){
+						const tokens = loginMsg.split(" ");
+						return resolve(tokens[1]);
+					}
+					reject("Could not find P4 User");
+				});
 		});
 	}
 
@@ -163,11 +198,18 @@ export class P4Tools {
 		});
 	}
 
+	public async p4AskForLogin() : Promise<string> {
+		// todo: implement a p4 login pop up
+		this.setConfig("p4User", this.p4User);
+	}
+
 	public async p4CheckOutFile(fileUri : vscode.Uri, changelist = "default") {
 		return this.p4RunCommand(`edit -c ${changelist} ${fileUri.fsPath}`);
 	}
 
-	public async p4RunCommand(p4Command : string) : Promise<string> {
+	public async p4RunCommand(p4Command : string, showNotificationOnError = true) : Promise<string> {
+
+		// todo: on Linux: export P4USER=User.Name;
 
 		const cmdToExecute = `p4 ${p4Command}`;
 	
@@ -184,7 +226,9 @@ export class P4Tools {
 	
 				if(stderr){
 					console.error(`P4 command error - ${stderr}`);
-					vscode.window.showErrorMessage(stderr);
+					if(showNotificationOnError) {
+						vscode.window.showErrorMessage(stderr);
+					}
 					reject(stderr);
 					return;
 				}
